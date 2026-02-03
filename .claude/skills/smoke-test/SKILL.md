@@ -57,15 +57,31 @@ echo "=== Test: Basic Container Response ==="
 
 RUNTIME=${CONTAINER_RUNTIME:-$(command -v docker &>/dev/null && echo docker || echo container)}
 
-OUTPUT=$(echo '{"prompt":"Respond with exactly: SMOKE_TEST_OK","groupFolder":"test","chatJid":"test@g.us","isMain":false}' \
-  | timeout 120 $RUNTIME run -i nanoclaw-agent:latest 2>/dev/null)
+# Build Docker env args for Claude auth
+# Handles Quotio/proxy setups by rewriting localhost → host.docker.internal
+DOCKER_ENV_ARGS=""
+if [ -n "$ANTHROPIC_API_KEY" ]; then
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+elif [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e ANTHROPIC_API_KEY=$ANTHROPIC_AUTH_TOKEN"
+fi
+if [ -n "$ANTHROPIC_BASE_URL" ]; then
+  BASE_URL_DOCKER=$(echo "$ANTHROPIC_BASE_URL" | sed 's/127.0.0.1/host.docker.internal/g' | sed 's/localhost/host.docker.internal/g')
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e ANTHROPIC_BASE_URL=$BASE_URL_DOCKER"
+fi
+if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN"
+fi
+
+OUTPUT=$(echo '{"prompt":"Respond with exactly the text SMOKE_TEST_OK","groupFolder":"test","chatJid":"test@g.us","isMain":false}' \
+  | timeout 120 $RUNTIME run -i $DOCKER_ENV_ARGS nanoclaw-agent:latest 2>/dev/null)
 
 # Extract JSON between sentinel markers
-JSON=$(echo "$OUTPUT" | sed -n '/---NANOCLAW_OUTPUT_START---/,/---NANOCLAW_OUTPUT_END---/p' | grep -v '---NANOCLAW_OUTPUT')
+JSON=$(echo "$OUTPUT" | sed -n '/NANOCLAW_OUTPUT_START/,/NANOCLAW_OUTPUT_END/p' | grep -v 'NANOCLAW_OUTPUT')
 
 if [ -z "$JSON" ]; then
   echo "FAIL: No output between sentinel markers"
-  echo "Raw output: $OUTPUT"
+  echo "Raw output (last 500 chars): ${OUTPUT: -500}"
   exit 1
 fi
 
@@ -86,6 +102,23 @@ Run a prompt that calls send_message, verify IPC file was written:
 ```bash
 echo "=== Test: IPC Message Writing ==="
 
+RUNTIME=${CONTAINER_RUNTIME:-$(command -v docker &>/dev/null && echo docker || echo container)}
+
+# Build Docker env args (same as test 3)
+DOCKER_ENV_ARGS=""
+if [ -n "$ANTHROPIC_API_KEY" ]; then
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+elif [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e ANTHROPIC_API_KEY=$ANTHROPIC_AUTH_TOKEN"
+fi
+if [ -n "$ANTHROPIC_BASE_URL" ]; then
+  BASE_URL_DOCKER=$(echo "$ANTHROPIC_BASE_URL" | sed 's/127.0.0.1/host.docker.internal/g' | sed 's/localhost/host.docker.internal/g')
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e ANTHROPIC_BASE_URL=$BASE_URL_DOCKER"
+fi
+if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN"
+fi
+
 # Create temp IPC directory
 TMPDIR=$(mktemp -d)
 mkdir -p "$TMPDIR/ipc/messages" "$TMPDIR/ipc/tasks" "$TMPDIR/group"
@@ -97,7 +130,7 @@ You are a test agent. Follow instructions exactly.
 EOF
 
 OUTPUT=$(echo '{"prompt":"Use send_message to send exactly: SMOKE_TEST_MSG","groupFolder":"test","chatJid":"test@g.us","isMain":false}' \
-  | timeout 120 $RUNTIME run -i \
+  | timeout 120 $RUNTIME run -i $DOCKER_ENV_ARGS \
     -v "$TMPDIR/ipc:/workspace/ipc" \
     -v "$TMPDIR/group:/workspace/group" \
     nanoclaw-agent:latest 2>/dev/null)
@@ -132,6 +165,23 @@ Run a prompt that schedules a task, verify IPC file:
 ```bash
 echo "=== Test: IPC Task Scheduling ==="
 
+RUNTIME=${CONTAINER_RUNTIME:-$(command -v docker &>/dev/null && echo docker || echo container)}
+
+# Build Docker env args (same as test 3)
+DOCKER_ENV_ARGS=""
+if [ -n "$ANTHROPIC_API_KEY" ]; then
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+elif [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e ANTHROPIC_API_KEY=$ANTHROPIC_AUTH_TOKEN"
+fi
+if [ -n "$ANTHROPIC_BASE_URL" ]; then
+  BASE_URL_DOCKER=$(echo "$ANTHROPIC_BASE_URL" | sed 's/127.0.0.1/host.docker.internal/g' | sed 's/localhost/host.docker.internal/g')
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e ANTHROPIC_BASE_URL=$BASE_URL_DOCKER"
+fi
+if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+  DOCKER_ENV_ARGS="$DOCKER_ENV_ARGS -e CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN"
+fi
+
 TMPDIR=$(mktemp -d)
 mkdir -p "$TMPDIR/ipc/messages" "$TMPDIR/ipc/tasks" "$TMPDIR/group"
 
@@ -141,7 +191,7 @@ You are a test agent. Follow instructions exactly.
 EOF
 
 OUTPUT=$(echo '{"prompt":"Schedule an isolated one-time task for 2099-01-01T00:00:00.000Z with prompt: SMOKE_TEST_TASK","groupFolder":"test","chatJid":"test@g.us","isMain":false}' \
-  | timeout 120 $RUNTIME run -i \
+  | timeout 120 $RUNTIME run -i $DOCKER_ENV_ARGS \
     -v "$TMPDIR/ipc:/workspace/ipc" \
     -v "$TMPDIR/group:/workspace/group" \
     nanoclaw-agent:latest 2>/dev/null)
